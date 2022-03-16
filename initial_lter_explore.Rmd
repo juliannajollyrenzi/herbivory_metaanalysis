@@ -350,5 +350,93 @@ fishNalg %>%
 ```
 
 
+## Species richness
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_spp_rich, y = Number_algal_genera_noCCAnoTurf, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Number of algal genera") +
+  xlab("Number of herbivores species") +
+  theme_bw() +
+  ggtitle("Richness differences by LTER site")
+
+```
+
+
+## A couple random bad models
+
+Richness
+
+```{r}
+mRich <- glm(Number_algal_genera_noCCAnoTurf ~ Herbiv_spp_rich + Habitat, 
+             data = fishNalg, 
+             family = "poisson")
+  summary(mRich) # if anything the relationship is positive...?
+
+```
+
+Coral
+
+```{r}
+mCoral <- glm(Avg_coral_cover ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mCoral) # Well the relationship is positive here..
+```
+
+Algae
+
+```{r}
+mAlgae <- glm(Avg_algal_cover_noCCAnoTurf ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mAlgae) # Nothing
+  
+```
+
+Lobophora
+
+```{r}
+mLoboph <- glm(Avg_lobophora_cover ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mLoboph) # Nothing
+  
+```
+
+CCA
+
+```{r}
+mCCA <- glm(Avg_CCA_cover ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mCCA) # Positive--I suppose this makes sense?
+  
+```
+
+Turf
+
+```{r}
+mTurf <- glm(Avg_turf_cover ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mTurf) # Nothing
+  
+```
+
+Turb
+
+```{r}
+mTurb <- glm(Avg_turb_cover ~ Herbiv_biomass + Habitat, 
+              data = fishNalg, 
+              family = "gaussian")
+  summary(mTurb) # Nothing--makes sense based on the kinda bimodal vibes of the plots?
+  
+```
+
+
 
 
