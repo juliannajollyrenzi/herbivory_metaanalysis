@@ -1,0 +1,354 @@
+---
+title: "Initial LTER data exploration"
+author: "Julianna Renzi"
+date: "3/16/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(tidyverse)
+require(here)
+require(wesanderson)
+```
+
+# Bring in the data
+
+```{r}
+# ALGAE
+algae <- read.csv(here("LTER_data/MCR_LTER_Annual_Survey_Benthic_Cover_20220311.csv")) %>% 
+  # rename sites to match fish data
+  mutate(Site = case_when(Site == "LTER 1" ~ "1",
+                          Site == "LTER 2" ~ "2",
+                          Site == "LTER 3" ~ "3",
+                          Site == "LTER 4" ~ "4",
+                          Site == "LTER 5" ~ "5",
+                          Site == "LTER 6" ~ "6"
+                          )) %>% 
+  # also get rid of deeper transect 
+  filter(Habitat != "Outer 17") %>% 
+  mutate(Habitat = case_when(Habitat == "Outer 10" ~ "Forereef",
+                          TRUE ~ Habitat
+                          )) %>% 
+  mutate(Year = as.factor(Year))
+
+
+# FISHES
+fish <- read_csv(here("LTER_data/MCR_LTER_Annual_Fish_Survey_20210108.csv"),
+                 # specify column types
+                 col_types = cols(.default = "c", # character
+                                  Location = "f", # factor
+                                  Year = "f",
+                                  Site = "f",
+                                  Habitat = "f",
+                                  Transect = "f",
+                                  Swath = "f",
+                                  Total_Length = "d", # double
+                                  Count = "i", # integer
+                                  Biomass = "d",
+                                  Coarse_Trophic = "f",
+                                  Fine_Trophic = "f")) %>% 
+  # get weird of these weird sites, but should figure out what's going on here
+  filter(Habitat != "error") %>% 
+  # rename habitat to match algal types
+  mutate(Habitat = case_when(Habitat == "BA" ~ "Backreef",
+                          Habitat == "FO" ~ "Forereef",
+                          Habitat == "FR" ~ "Fringing"
+                          )) 
+  
+# Note: we might want to go through and do a little QA/QC for a couple biomass/length entries (for now just not dealing with then)
+
+```
+
+Ultimately we want values for each site + habitat + year in terms of macroalgaal abundance (and diversity?) and fish abundance (and diversity?)
+
+# Fish summaries
+
+Start by getting potentially interesting fish metrics for each site-habitat-year combination
+
+```{r}
+fish %>%
+  # just get fishes the LTER considers herbivores/detritivores
+  filter(Fine_Trophic == "Herbivore/Detritivore") %>% 
+  # group by site, habitat, and year
+  group_by(Year, Site, Habitat) %>% 
+  # get interesting summary statistics
+  summarise(Herbiv_abundance = sum(Count, na.rm = TRUE),
+            # get biomass as well as abundance
+            Herbiv_biomass = sum(Biomass, na.rm = TRUE), # I think this is right but they don't specify for sure that biomass is total biomass and should be summed
+            # get species richness for herbivores/detritivores
+            Herbiv_spp_rich = n_distinct(Taxonomy)) %>% 
+  ungroup() -> all_herbivores
+
+
+```
+
+We might also want this for big fishes, after reading Shantz et al. 2019 (Ecological Monographs). Try defining "big" herbivores as greater than 20cm (used in the Shantz model)
+
+```{r}
+fish %>%
+  filter(Total_Length > 20) %>% 
+  # just get fishes the LTER considers herbivores/detritivores
+  filter(Fine_Trophic == "Herbivore/Detritivore") %>% 
+  # group by site, habitat, and year
+  group_by(Year, Site, Habitat) %>% 
+  # get interesting summary statistics
+  summarise(Herbiv_abundance20cm = sum(Count, na.rm = TRUE),
+            # get biomass as well as abundance
+            Herbiv_biomass20cm = sum(Biomass, na.rm = TRUE), # I think this is right but they don't specify for sure that biomass is total biomass and should be summed
+            # get species richness for herbivores/detritivores
+            Herbiv_spp_rich20cm = n_distinct(Taxonomy)) %>% 
+  ungroup() -> big_herbivores
+
+```
+
+
+# Now look at algal data
+
+Get broad "coral" cover
+
+```{r}
+algae %>% 
+  filter(Taxonomy_Substrate_Functional_Group == "Coral") %>% 
+  # change site and habitat designations to match
+  group_by(Year, Site, Habitat) %>% 
+  summarize(Avg_coral_cover = mean(Percent_Cover)) -> coral_cover
+
+```
+
+Now get more specific algal metrics
+
+```{r}
+algae %>% 
+  # select just the algal entries 
+  filter(Taxonomy_Substrate_Functional_Group != "Coral" & 
+           Taxonomy_Substrate_Functional_Group != "Sand" & 
+           Taxonomy_Substrate_Functional_Group != "Ascidian" & 
+           Taxonomy_Substrate_Functional_Group != "Sponge" & 
+           Taxonomy_Substrate_Functional_Group != "Millepora platyphylla" & 
+           Taxonomy_Substrate_Functional_Group != "Shell Debris" & 
+           Taxonomy_Substrate_Functional_Group != "Corallimorpharia" & 
+           Taxonomy_Substrate_Functional_Group != "Soft Coral" & 
+           Taxonomy_Substrate_Functional_Group != "Cyanophyta" & 
+           Taxonomy_Substrate_Functional_Group != "Coral Rubble" & 
+           Taxonomy_Substrate_Functional_Group != "Symploca hydnoides" & 
+           Taxonomy_Substrate_Functional_Group != "No data" & 
+           Taxonomy_Substrate_Functional_Group != "Tridacna sp." & 
+           Taxonomy_Substrate_Functional_Group != "Bare Space" & 
+           Taxonomy_Substrate_Functional_Group != "Sarcophyton sp."
+           ) %>% 
+  # make a column for genus
+  rowwise() %>% 
+  mutate(Genus = str_split(Taxonomy_Substrate_Functional_Group, " ")[[1]][1]) %>%
+  # do some clean up
+  mutate(Genus = case_when(Genus == "Algal" ~ "Turf", 
+                           Genus == "Crustose" ~ "CCA",
+                           Genus == "Damselfish" ~ "Turf",
+                           TRUE ~ Genus
+                           )) -> algae
+  
+  
+ 
+  
+```
+
+## Get metrics for overall algae by site
+
+First for algae
+
+```{r}
+algae %>% 
+  group_by(Year, Site, Habitat) %>% 
+  filter(Genus != "CCA" &
+           Genus != "Turf") %>% 
+  summarize(Avg_algal_cover_noCCAnoTurf = mean(Percent_Cover),
+            Number_algal_genera_noCCAnoTurf = n_distinct(Genus)) %>% 
+  ungroup() -> overall_algae
+```
+
+Then for turf, CCA, Lobophora, and Turbinaria (of some interest)
+
+```{r}
+# for CCA
+algae %>% 
+  group_by(Year, Site, Habitat) %>% 
+  filter(Genus == "CCA") %>% 
+  summarize(Avg_CCA_cover = mean(Percent_Cover)) %>% 
+  ungroup() -> overall_CCA
+
+
+# for turf
+algae %>% 
+  group_by(Year, Site, Habitat) %>% 
+  filter(Genus == "Turf") %>% 
+  summarize(Avg_turf_cover = mean(Percent_Cover)) %>% 
+  ungroup() -> overall_turf
+
+# for Lobophora
+algae %>% 
+  group_by(Year, Site, Habitat) %>% 
+  filter(Genus == "Lobophora") %>% 
+  summarize(Avg_lobophora_cover = mean(Percent_Cover)) %>% 
+  ungroup() -> overall_lobophora
+
+# for Turb
+algae %>% 
+  group_by(Year, Site, Habitat) %>% 
+  filter(Genus == "Turbinaria") %>% 
+  summarize(Avg_turb_cover = mean(Percent_Cover)) %>% 
+  ungroup() -> overall_turb
+
+
+```
+
+
+## Join data together
+
+```{r}
+all_herbivores %>% 
+  full_join(big_herbivores, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(coral_cover, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(overall_algae, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(overall_CCA, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(overall_turf, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(overall_lobophora, by = c("Year", "Site", "Habitat")) %>% 
+  full_join(overall_turb, by = c("Year", "Site", "Habitat")) %>% 
+  # remove years that we don't have fish data for yet
+  filter(Year != 2005,
+         Year != 2006, # also getting rid of 2006 because algal surveys were split over 2005 & 2006 and will need to make some judgment calls for how to deal with this
+         Year != 2020,
+         Year != 2021) %>% 
+  # then fill in missing values with 0 (e.g., no coral/algae/turf observed)
+  replace(is.na(.), 0) -> fishNalg
+
+```
+
+# Plot it up
+
+Bring in colors
+
+```{r}
+# for forereef/fringing/backreef
+HabitatPal <- wes_palette(name = "BottleRocket2", n = 3)
+```
+
+## Herbivores v. Coral
+
+Plot just overall herbivore biomass
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_coral_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average coral cover (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+
+```
+
+Then think about "bigger" herbivores
+
+- Not sure why my filter isn't working here--need to come back to that
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass20cm, y = Avg_coral_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average coral cover (%)") +
+  xlab("Total big herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Biomass of big herbivores (>20cm) by LTER site")
+
+
+```
+
+
+## Herbivores v. algae
+
+Plot just overall herbivore biomass
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_algal_cover_noCCAnoTurf, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average algal cover, no CCA or turf (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+```
+
+CCA
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_CCA_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average CCA cover (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+```
+
+
+Turf
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_turf_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average turf cover (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+```
+
+
+Turbinaria
+
+- This looks almost unimodal.... Can't think of why that would be?
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_turb_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average Turbinaria cover (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+
+```
+
+Lobophora
+
+```{r}
+fishNalg %>% 
+  ggplot(aes(x = Herbiv_biomass, y = Avg_lobophora_cover, color = Habitat)) +
+  geom_point() +
+  facet_wrap(.~Site) +
+  scale_color_manual(values = HabitatPal) +
+  ylab("Average Lobophora cover (%)") +
+  xlab("Total herbivore biomass (g)") +
+  theme_bw() +
+  ggtitle("Total herbivore biomass by LTER site")
+
+```
+
+
+
+
